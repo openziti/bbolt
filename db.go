@@ -120,6 +120,14 @@ type DB struct {
 	// of truncate() and fsync() when growing the data file.
 	AllocSize int
 
+	// Tracing hooks invoked before and after Update(), View() and Batch().
+	TraceBeforeUpdate func(*Tx, func(*Tx) error)
+	TraceAfterUpdate  func(*Tx, func(*Tx) error)
+	TraceBeforeView   func(*Tx, func(*Tx) error)
+	TraceAfterView    func(*Tx, func(*Tx) error)
+	TraceBeforeBatch  func(*Tx, func(*Tx) error)
+	TraceAfterBatch   func(*Tx, func(*Tx) error)
+
 	path     string
 	openFile func(string, int, os.FileMode) (*os.File, error)
 	file     *os.File
@@ -690,8 +698,17 @@ func (db *DB) Update(fn func(*Tx) error) error {
 	// Mark as a managed tx so that the inner function cannot manually commit.
 	t.managed = true
 
+	if db.TraceBeforeUpdate != nil {
+		db.TraceBeforeUpdate(t, fn)
+	}
+
 	// If an error is returned from the function then rollback and return error.
 	err = fn(t)
+
+	if db.TraceAfterUpdate != nil {
+		db.TraceAfterUpdate(t, fn)
+	}
+
 	t.managed = false
 	if err != nil {
 		_ = t.Rollback()
@@ -721,8 +738,17 @@ func (db *DB) View(fn func(*Tx) error) error {
 	// Mark as a managed tx so that the inner function cannot manually rollback.
 	t.managed = true
 
+	if db.TraceBeforeView != nil {
+		db.TraceBeforeView(t, fn)
+	}
+
 	// If an error is returned from the function then pass it through.
 	err = fn(t)
+
+	if db.TraceAfterView != nil {
+		db.TraceAfterView(t, fn)
+	}
+
 	t.managed = false
 	if err != nil {
 		_ = t.Rollback()
@@ -808,7 +834,17 @@ retry:
 		var failIdx = -1
 		err := b.db.Update(func(tx *Tx) error {
 			for i, c := range b.calls {
-				if err := safelyCall(c.fn, tx); err != nil {
+				if b.db.TraceBeforeBatch != nil {
+					b.db.TraceBeforeBatch(tx, c.fn)
+				}
+
+				err := safelyCall(c.fn, tx)
+
+				if b.db.TraceAfterBatch != nil {
+					b.db.TraceAfterBatch(tx, c.fn)
+				}
+
+				if err != nil {
 					failIdx = i
 					return err
 				}
