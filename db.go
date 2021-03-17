@@ -121,12 +121,12 @@ type DB struct {
 	AllocSize int
 
 	// Tracing hooks invoked before and after Update(), View() and Batch().
-	TraceBeforeUpdate func(*Tx, func(*Tx) error)
-	TraceAfterUpdate  func(*Tx, func(*Tx) error)
-	TraceBeforeView   func(*Tx, func(*Tx) error)
-	TraceAfterView    func(*Tx, func(*Tx) error)
-	TraceBeforeBatch  func(*Tx, func(*Tx) error)
-	TraceAfterBatch   func(*Tx, func(*Tx) error)
+	TraceUpdateEnter func(*Tx, func(*Tx) error)
+	TraceUpdateExit  func(*Tx, func(*Tx) error)
+	TraceViewEnter   func(*Tx, func(*Tx) error)
+	TraceViewExit    func(*Tx, func(*Tx) error)
+	TraceBatchEnter  func(*Tx, func(*Tx) error)
+	TraceBatchExit   func(*Tx, func(*Tx) error)
 
 	path     string
 	openFile func(string, int, os.FileMode) (*os.File, error)
@@ -698,15 +698,15 @@ func (db *DB) Update(fn func(*Tx) error) error {
 	// Mark as a managed tx so that the inner function cannot manually commit.
 	t.managed = true
 
-	if db.TraceBeforeUpdate != nil {
-		db.TraceBeforeUpdate(t, fn)
+	if db.TraceUpdateEnter != nil {
+		db.TraceUpdateEnter(t, fn)
 	}
 
 	// If an error is returned from the function then rollback and return error.
 	err = fn(t)
 
-	if db.TraceAfterUpdate != nil {
-		db.TraceAfterUpdate(t, fn)
+	if db.TraceUpdateExit != nil {
+		db.TraceUpdateExit(t, fn)
 	}
 
 	t.managed = false
@@ -738,15 +738,15 @@ func (db *DB) View(fn func(*Tx) error) error {
 	// Mark as a managed tx so that the inner function cannot manually rollback.
 	t.managed = true
 
-	if db.TraceBeforeView != nil {
-		db.TraceBeforeView(t, fn)
+	if db.TraceViewEnter != nil {
+		db.TraceViewEnter(t, fn)
 	}
 
 	// If an error is returned from the function then pass it through.
 	err = fn(t)
 
-	if db.TraceAfterView != nil {
-		db.TraceAfterView(t, fn)
+	if db.TraceViewExit != nil {
+		db.TraceViewExit(t, fn)
 	}
 
 	t.managed = false
@@ -834,14 +834,14 @@ retry:
 		var failIdx = -1
 		err := b.db.Update(func(tx *Tx) error {
 			for i, c := range b.calls {
-				if b.db.TraceBeforeBatch != nil {
-					b.db.TraceBeforeBatch(tx, c.fn)
+				if b.db.TraceBatchEnter != nil {
+					b.db.TraceBatchEnter(tx, c.fn)
 				}
 
 				err := safelyCall(c.fn, tx)
 
-				if b.db.TraceAfterBatch != nil {
-					b.db.TraceAfterBatch(tx, c.fn)
+				if b.db.TraceBatchExit != nil {
+					b.db.TraceBatchExit(tx, c.fn)
 				}
 
 				if err != nil {
